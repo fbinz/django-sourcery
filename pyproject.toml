@@ -1,0 +1,30 @@
+[project]
+name = "django-sourcery"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Fabian Binz", email = "fabian.binz@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "django>=5.1.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "django-sourcery",
+    "pytest-django>=4.10.0",
+    "pytest>=8.3.4",
+    "freezegun>=1.5.1",
+]
+
+[tool.uv.sources]
+django-sourcery = { workspace = true }
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "testproject.settings"
