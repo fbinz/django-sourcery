@@ -2,8 +2,11 @@ import datetime
 from itertools import groupby
 from django.db import models
 from dataclasses import asdict, dataclass
-
+from django.db.models.functions import RowNumber
+from django.db.models import Q, Window, F
+from django.utils.translation import gettext_lazy as _
 from django_sourcery.helpers import require_transaction
+from django.core.serializers import deserialize, serialize
 
 
 @dataclass(kw_only=True)
@@ -15,7 +18,10 @@ class Event:
 
 
 class Aggregate(models.Model):
-    version = models.PositiveIntegerField(default=1)
+    version = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        abstract = True
 
     def apply(self, event):
         event.apply(self)
@@ -36,6 +42,17 @@ class Aggregate(models.Model):
 
         self.apply(event)
 
+    def snapshot(self):
+        topic = self.__class__.__qualname__
+
+        EventRecord.objects.create(
+            type=EventRecord.Type.SNAPSHOT,
+            topic=topic,
+            originator_id=self.id,
+            originator_version=self.version,
+            state=serialize("json", [self]),
+        )
+
     @classmethod
     def restore(
         cls,
@@ -47,19 +64,36 @@ class Aggregate(models.Model):
         if len(list(filter(None, [version, timestamp]))) != 1:
             raise ValueError("Either version or timestamp need to be specified")
 
-        instance = cls(id=id)
-
         topic_prefix = cls.__qualname__
+
+        snapshots = EventRecord.objects.filter(
+            originator_id=id,
+            topic__startswith=topic_prefix,
+            type=EventRecord.Type.SNAPSHOT,
+        ).order_by("originator_version")
+
+        if version:
+            snapshots = snapshots.filter(originator_version__lte=version)
+        else:
+            snapshots = snapshots.filter(timestamp__lte=timestamp)
 
         events = EventRecord.objects.filter(
             originator_id=id,
             topic__startswith=topic_prefix,
+            type=EventRecord.Type.EVENT,
         ).order_by("originator_version")
 
         if version:
-            events = events.filter(originator_version__lt=version)
+            events = events.filter(originator_version__lte=version)
         else:
             events = events.filter(timestamp__lte=timestamp)
+
+        snapshot = snapshots.first()
+        if snapshot is not None:
+            instance = next(deserialize("json", snapshot.state)).object
+            events = events.filter(originator_version__gt=snapshot.originator_version)
+        else:
+            instance = cls(id=id)
 
         for event in events:
             event_class = getattr(cls, event.topic.split(".")[-1])
@@ -89,11 +123,20 @@ class Aggregate(models.Model):
 
         return instances
 
-    class Meta:
-        abstract = True
+
+class EventRecordType(models.IntegerChoices):
+    EVENT = 1, _("Event")
+    SNAPSHOT = 2, _("Snapshot")
 
 
 class EventRecord(models.Model):
+    # Type
+    Type = EventRecordType
+    type = models.PositiveSmallIntegerField(
+        choices=EventRecordType,
+        default=EventRecordType.EVENT.value,
+    )
+
     # Topic (e.g. name of aggregate)
     topic = models.CharField(max_length=50)
 
@@ -116,6 +159,7 @@ class EventRecord(models.Model):
                     "originator_id",
                     "originator_version",
                 ],
+                condition=Q(type=EventRecordType.EVENT),
                 name="record_unique_originator_version",
             )
         ]
