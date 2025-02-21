@@ -11,9 +11,9 @@ def test_create():
     assert EventRecord.objects.count() == 1
 
     er = EventRecord.objects.first()
-    assert er.topic == "Order.OrderCreated"
-    assert er.originator_id == order.id
-    assert er.originator_version == 0
+    assert er.name == "Order.OrderCreated"
+    assert er.object_id == order.id
+    assert er.applied_to_version == 0
     assert er.state == {"total": 100, "version": 0}
 
 
@@ -24,18 +24,18 @@ def test_create_and_pay():
 
     assert order.total == 50
 
-    records = list(EventRecord.objects.order_by("originator_version"))
+    records = list(EventRecord.objects.order_by("applied_to_version"))
 
     assert len(records) == 2
 
     er = records[0]
-    assert er.topic == "Order.OrderCreated"
-    assert er.originator_id == order.id
-    assert er.originator_version == 0
+    assert er.name == "Order.OrderCreated"
+    assert er.object_id == order.id
+    assert er.applied_to_version == 0
     assert er.state == {"total": 100, "version": 0}
 
     er = records[1]
-    assert er.topic == "Order.PaymentReceived"
-    assert er.originator_id == order.id
-    assert er.originator_version == 1
+    assert er.name == "Order.PaymentReceived"
+    assert er.object_id == order.id
+    assert er.applied_to_version == 1
     assert er.state == {"amount": 50, "version": 1}

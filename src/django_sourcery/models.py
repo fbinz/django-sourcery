@@ -1,5 +1,6 @@
 import datetime
 from itertools import groupby
+from typing import Iterable
 from django.db import models
 from dataclasses import asdict, dataclass
 from django.db.models.functions import RowNumber
@@ -32,24 +33,24 @@ class Aggregate(models.Model):
         if self.version != event.version:
             raise ValueError(f"Version mismatch: {self.version} != {event.version}")
 
-        topic = event.__class__.__qualname__
+        name = event.__class__.__qualname__
         EventRecord.objects.create(
-            topic=topic,
-            originator_id=self.id,
-            originator_version=self.version,
+            name=name,
+            object_id=self.id,
+            applied_to_version=self.version,
             state=asdict(event),
         )
 
         self.apply(event)
 
     def snapshot(self):
-        topic = self.__class__.__qualname__
+        name = self.__class__.__qualname__
 
         EventRecord.objects.create(
             type=EventRecord.Type.SNAPSHOT,
-            topic=topic,
-            originator_id=self.id,
-            originator_version=self.version,
+            name=name,
+            object_id=self.id,
+            applied_to_version=self.version,
             state=serialize("json", [self]),
         )
 
@@ -64,59 +65,60 @@ class Aggregate(models.Model):
         if len(list(filter(None, [version, timestamp]))) != 1:
             raise ValueError("Either version or timestamp need to be specified")
 
-        topic_prefix = cls.__qualname__
+        name_prefix = cls.__qualname__
 
         snapshots = EventRecord.objects.filter(
-            originator_id=id,
-            topic__startswith=topic_prefix,
+            object_id=id,
+            name__startswith=name_prefix,
             type=EventRecord.Type.SNAPSHOT,
-        ).order_by("originator_version")
+        ).order_by("applied_to_version")
 
         if version:
-            snapshots = snapshots.filter(originator_version__lte=version)
+            snapshots = snapshots.filter(applied_to_version__lte=version)
         else:
             snapshots = snapshots.filter(timestamp__lte=timestamp)
 
         events = EventRecord.objects.filter(
-            originator_id=id,
-            topic__startswith=topic_prefix,
+            object_id=id,
+            name__startswith=name_prefix,
             type=EventRecord.Type.EVENT,
-        ).order_by("originator_version")
+        ).order_by("applied_to_version")
 
         if version:
-            events = events.filter(originator_version__lte=version)
+            events = events.filter(applied_to_version__lt=version)
         else:
             events = events.filter(timestamp__lte=timestamp)
 
         snapshot = snapshots.first()
         if snapshot is not None:
             instance = next(deserialize("json", snapshot.state)).object
-            events = events.filter(originator_version__gt=snapshot.originator_version)
+            events = events.filter(applied_to_version__gte=snapshot.applied_to_version)
         else:
             instance = cls(id=id)
 
         for event in events:
-            event_class = getattr(cls, event.topic.split(".")[-1])
+            event_class = getattr(cls, event.name.split(".")[-1])
             instance.apply(event_class(**event.state))
 
         return instance
 
     @classmethod
-    def restore_many(cls, *, ids, timestamp: datetime.datetime):
-        topic_prefix = cls.__qualname__
+    def restore_many(cls, *, ids: Iterable[int], timestamp: datetime.datetime):
+        name_prefix = cls.__qualname__
 
         all_events = EventRecord.objects.filter(
-            originator_id__in=ids,
-            topic__startswith=topic_prefix,
+            object_id__in=ids,
+            name__startswith=name_prefix,
             timestamp__lte=timestamp,
-        ).order_by("originator_id", "originator_version")
+            type=EventRecord.Type.EVENT,
+        ).order_by("object_id", "applied_to_version")
 
         instances = []
-        for id, events in groupby(all_events, key=lambda e: e.originator_id):
+        for id, events in groupby(all_events, key=lambda e: e.object_id):
             instance = cls(id=id)
 
             for event in events:
-                event_class = getattr(cls, event.topic.split(".")[-1])
+                event_class = getattr(cls, event.name.split(".")[-1])
                 instance.apply(event_class(**event.state))
 
             instances.append(instance)
@@ -137,14 +139,14 @@ class EventRecord(models.Model):
         default=EventRecordType.EVENT.value,
     )
 
-    # Topic (e.g. name of aggregate)
-    topic = models.CharField(max_length=50)
+    # Name of aggregate
+    name = models.CharField(max_length=50)
 
-    # Originator ID (id of an aggregate)
-    originator_id = models.PositiveBigIntegerField()
+    # Object ID (ID of an aggregate)
+    object_id = models.PositiveBigIntegerField()
 
-    # Originator version (version of an aggregate)
-    originator_version = models.PositiveBigIntegerField()
+    # Object version (version of an aggregate)
+    applied_to_version = models.PositiveBigIntegerField()
 
     # The serialized state of the event
     state = models.JSONField()
@@ -156,38 +158,10 @@ class EventRecord(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=[
-                    "originator_id",
-                    "originator_version",
+                    "object_id",
+                    "applied_to_version",
                 ],
                 condition=Q(type=EventRecordType.EVENT),
-                name="record_unique_originator_version",
-            )
-        ]
-
-
-class SnapshotRecord(models.Model):
-    # Topic (e.g. name of aggregate)
-    topic = models.CharField(max_length=50)
-
-    # Originator ID (id of an aggregate)
-    originator_id = models.PositiveBigIntegerField()
-
-    # Originator version (version of an aggregate)
-    originator_version = models.PositiveBigIntegerField()
-
-    # The serialized state of the aggregate
-    state = models.JSONField()
-
-    # Timestamp
-    timestamp = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=[
-                    "originator_id",
-                    "originator_version",
-                ],
-                name="snapshop_unique_originator_version",
+                name="record_unique_applied_to_version",
             )
         ]
