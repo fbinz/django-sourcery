@@ -5,8 +5,6 @@ from core.models import Order, Payment
 from freezegun import freeze_time
 import pytest
 
-from django_sourcery.models import EventRecord
-
 
 @pytest.mark.django_db(transaction=True)
 def test_restore_by_version():
@@ -31,13 +29,13 @@ def test_restore_by_version():
 
     assert order.total == 0
 
-    o = Order.restore(id=order.id, version=order_version_1)
+    o = Order.restore(object_id=order.id, version=order_version_1)
     assert o.total == 100
 
-    o = Order.restore(id=order.id, version=order_version_2)
+    o = Order.restore(object_id=order.id, version=order_version_2)
     assert o.total == 50
 
-    o = Order.restore(id=order.id, version=order_version_3)
+    o = Order.restore(object_id=order.id, version=order_version_3)
     assert o.total == 0
 
 
@@ -62,13 +60,13 @@ def test_restore_by_timestamp():
 
     assert order.total == 0
 
-    o = Order.restore(id=order.id, timestamp=timestamp_1)
+    o = Order.restore(object_id=order.id, timestamp=timestamp_1)
     assert o.total == 100
 
-    o = Order.restore(id=order.id, timestamp=timestamp_2)
+    o = Order.restore(object_id=order.id, timestamp=timestamp_2)
     assert o.total == 50
 
-    o = Order.restore(id=order.id, timestamp=timestamp_3)
+    o = Order.restore(object_id=order.id, timestamp=timestamp_3)
     assert o.total == 0
 
 
@@ -106,16 +104,16 @@ def test_restore_many():
     assert order_2.total == 0
 
     os = Order.restore_many(ids=[order_1.id, order_2.id], timestamp=timestamp_1)
-    assert os[0].total == 100
-    assert os[1].total == 200
+    assert os[order_1.id].total == 100
+    assert os[order_2.id].total == 200
 
     os = Order.restore_many(ids=[order_1.id, order_2.id], timestamp=timestamp_2)
-    assert os[0].total == 50
-    assert os[1].total == 70
+    assert os[order_1.id].total == 50
+    assert os[order_2.id].total == 70
 
     os = Order.restore_many(ids=[order_1.id, order_2.id], timestamp=timestamp_3)
-    assert os[0].total == 0
-    assert os[1].total == 0
+    assert os[order_1.id].total == 0
+    assert os[order_2.id].total == 0
 
 
 @pytest.mark.django_db(transaction=True)
@@ -145,10 +143,10 @@ def test_restore_snapshot():
 
     assert order.total == 0
 
-    o = Order.restore(id=order.id, version=order_version_2)
+    o = Order.restore(object_id=order.id, version=order_version_2)
     assert o.total == 50
 
-    o = Order.restore(id=order.id, version=order_version_3)
+    o = Order.restore(object_id=order.id, version=order_version_3)
     assert o.total == 0
 
 
@@ -187,13 +185,13 @@ def test_restore_snapshot_many():
     assert order_2.total == 0
 
     os = Order.restore_many(ids=[order_1.id, order_2.id], timestamp=timestamp_1)
-    assert os[0].total == 100
-    assert os[1].total == 200
+    assert os[order_1.id].total == 100
+    assert os[order_2.id].total == 200
 
     os = Order.restore_many(ids=[order_1.id, order_2.id], timestamp=timestamp_2)
-    assert os[0].total == 50
-    assert os[1].total == 70
+    assert os[order_1.id].total == 50
+    assert os[order_2.id].total == 70
 
     os = Order.restore_many(ids=[order_1.id, order_2.id], timestamp=timestamp_3)
-    assert os[0].total == 0
-    assert os[1].total == 0
+    assert os[order_1.id].total == 0
+    assert os[order_2.id].total == 0
