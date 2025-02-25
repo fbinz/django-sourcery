@@ -11,6 +11,7 @@ class Payment:
 
 
 class Order(Aggregate):
+    id: int
     total = models.FloatField()
 
     @dataclass
@@ -31,7 +32,7 @@ class Order(Aggregate):
     @transaction.atomic
     def create(*, total) -> "Order":
         order = Order.objects.create(total=total)
-        order.trigger_event(Order.OrderCreated(version=1, total=total))
+        order.trigger_event(Order.OrderCreated(version=0, total=total))
         return order
 
     @transaction.atomic
