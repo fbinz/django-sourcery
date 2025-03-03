@@ -135,7 +135,7 @@ class EventRecord(models.Model):
     # Type
     Type = EventRecordType
     type = models.PositiveSmallIntegerField(
-        choices=EventRecordType,
+        choices=EventRecordType.choices,
         default=EventRecordType.EVENT.value,
     )
 
