@@ -11,6 +11,7 @@ class Payment:
 
 
 class Order(Aggregate):
+    id: int
     total = models.FloatField()
 
     @dataclass
