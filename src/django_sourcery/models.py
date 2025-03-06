@@ -1,14 +1,20 @@
-from dataclasses import asdict, dataclass
 import datetime
+from dataclasses import asdict, dataclass
 from itertools import groupby
 from typing import Iterable, Self
 
-from django.db import models
+from django.db import models, connection
 from django.db.models import Q, When
 from django.utils.translation import gettext_lazy as _
 from django.core.serializers import deserialize, serialize
 
 from django_sourcery.helpers import require_transaction
+
+def get_condition():
+    condition = None
+    if "postgres" in connection.settings_dict["ENGINE"]:
+        condition = condition = Q(type=EventRecordType.EVENT)
+    return condition
 
 
 @dataclass(kw_only=True)
@@ -35,6 +41,7 @@ class Aggregate(models.Model):
             raise ValueError(f"Version mismatch: {self.version} != {event.version}")
 
         name = event.__class__.__qualname__
+        self.apply(event)
         EventRecord.objects.create(
             name=name,
             # TODO model might not have an 'id' field -> use primary key
@@ -42,8 +49,6 @@ class Aggregate(models.Model):
             applied_to_version=self.version,
             state=asdict(event),
         )
-
-        self.apply(event)
 
     def snapshot(self):
         name = self.__class__.__qualname__
@@ -211,11 +216,11 @@ class EventRecord(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=[
+                fields=(
                     "object_id",
                     "applied_to_version",
-                ],
-                condition=Q(type=EventRecordType.EVENT),
+                ),
+                condition=get_condition(),
                 name="record_unique_applied_to_version",
-            )
+            ),
         ]
